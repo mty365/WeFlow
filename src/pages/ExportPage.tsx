@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Download, FolderOpen, RefreshCw, Check, Calendar, FileJson, FileText, Table, Loader2, X, ChevronDown, FileSpreadsheet, Database, FileCode, CheckCircle, XCircle, ExternalLink } from 'lucide-react'
+import { Search, Download, FolderOpen, RefreshCw, Check, Calendar, FileJson, FileText, Table, Loader2, X, ChevronDown, ChevronLeft, ChevronRight, FileSpreadsheet, Database, FileCode, CheckCircle, XCircle, ExternalLink } from 'lucide-react'
 import * as configService from '../services/config'
 import './ExportPage.scss'
 
@@ -35,6 +35,8 @@ function ExportPage() {
   const [exportProgress, setExportProgress] = useState({ current: 0, total: 0, currentName: '' })
   const [exportResult, setExportResult] = useState<ExportResult | null>(null)
   const [showDatePicker, setShowDatePicker] = useState(false)
+  const [calendarDate, setCalendarDate] = useState(new Date())
+  const [selectingStart, setSelectingStart] = useState(true)
 
   const [options, setOptions] = useState<ExportOptions>({
     format: 'chatlab',
@@ -143,7 +145,8 @@ function ExportPage() {
         format: options.format,
         dateRange: options.useAllTime ? null : options.dateRange ? {
           start: Math.floor(options.dateRange.start.getTime() / 1000),
-          end: Math.floor(options.dateRange.end.getTime() / 1000)
+          // 将结束日期设置为当天的 23:59:59,以包含当天的所有消息
+          end: Math.floor(new Date(options.dateRange.end.getFullYear(), options.dateRange.end.getMonth(), options.dateRange.end.getDate(), 23, 59, 59).getTime() / 1000)
         } : null
       }
 
@@ -162,6 +165,54 @@ function ExportPage() {
       setExportResult({ success: false, error: String(e) })
     } finally {
       setIsExporting(false)
+    }
+  }
+
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear()
+    const month = date.getMonth()
+    return new Date(year, month + 1, 0).getDate()
+  }
+
+  const getFirstDayOfMonth = (date: Date) => {
+    const year = date.getFullYear()
+    const month = date.getMonth()
+    return new Date(year, month, 1).getDay()
+  }
+
+  const generateCalendar = () => {
+    const daysInMonth = getDaysInMonth(calendarDate)
+    const firstDay = getFirstDayOfMonth(calendarDate)
+    const days: (number | null)[] = []
+
+    for (let i = 0; i < firstDay; i++) {
+      days.push(null)
+    }
+
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(i)
+    }
+
+    return days
+  }
+
+  const handleDateSelect = (day: number) => {
+    const year = calendarDate.getFullYear()
+    const month = calendarDate.getMonth()
+    const selectedDate = new Date(year, month, day)
+
+    if (selectingStart) {
+      setOptions({
+        ...options,
+        dateRange: options.dateRange ? { ...options.dateRange, start: selectedDate } : { start: selectedDate, end: new Date() }
+      })
+      setSelectingStart(false)
+    } else {
+      setOptions({
+        ...options,
+        dateRange: options.dateRange ? { ...options.dateRange, end: selectedDate } : { start: new Date(), end: selectedDate }
+      })
+      setSelectingStart(true)
     }
   }
 
@@ -279,12 +330,10 @@ function ExportPage() {
                 <span>导出全部时间</span>
               </label>
               {!options.useAllTime && options.dateRange && (
-                <div className="date-range">
+                <div className="date-range" onClick={() => setShowDatePicker(true)}>
                   <Calendar size={16} />
                   <span>{formatDate(options.dateRange.start)} - {formatDate(options.dateRange.end)}</span>
-                  <button className="change-btn" onClick={() => setShowDatePicker(true)}>
-                    <ChevronDown size={14} />
-                  </button>
+                  <ChevronDown size={14} />
                 </div>
               )}
             </div>
@@ -377,38 +426,111 @@ function ExportPage() {
         <div className="export-overlay" onClick={() => setShowDatePicker(false)}>
           <div className="date-picker-modal" onClick={e => e.stopPropagation()}>
             <h3>选择时间范围</h3>
-            <div className="date-inputs">
-              <div className="date-input-group">
-                <label>开始日期</label>
-                <input
-                  type="date"
-                  value={options.dateRange?.start.toISOString().split('T')[0] || ''}
-                  onChange={e => {
-                    const newDate = new Date(e.target.value)
-                    if (options.dateRange) {
-                      setOptions({
-                        ...options,
-                        dateRange: { ...options.dateRange, start: newDate }
-                      })
-                    }
-                  }}
-                />
+            <div className="quick-select">
+              <button
+                className="quick-btn"
+                onClick={() => {
+                  const end = new Date()
+                  const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000)
+                  setOptions({ ...options, dateRange: { start, end } })
+                }}
+              >
+                最近7天
+              </button>
+              <button
+                className="quick-btn"
+                onClick={() => {
+                  const end = new Date()
+                  const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000)
+                  setOptions({ ...options, dateRange: { start, end } })
+                }}
+              >
+                最近30天
+              </button>
+              <button
+                className="quick-btn"
+                onClick={() => {
+                  const end = new Date()
+                  const start = new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000)
+                  setOptions({ ...options, dateRange: { start, end } })
+                }}
+              >
+                最近90天
+              </button>
+            </div>
+            <div className="date-display">
+              <div
+                className={`date-display-item ${selectingStart ? 'active' : ''}`}
+                onClick={() => setSelectingStart(true)}
+              >
+                <span className="date-label">开始日期</span>
+                <span className="date-value">
+                  {options.dateRange?.start.toLocaleDateString('zh-CN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit'
+                  })}
+                </span>
               </div>
-              <div className="date-input-group">
-                <label>结束日期</label>
-                <input
-                  type="date"
-                  value={options.dateRange?.end.toISOString().split('T')[0] || ''}
-                  onChange={e => {
-                    const newDate = new Date(e.target.value)
-                    if (options.dateRange) {
-                      setOptions({
-                        ...options,
-                        dateRange: { ...options.dateRange, end: newDate }
-                      })
-                    }
-                  }}
-                />
+              <span className="date-separator">至</span>
+              <div
+                className={`date-display-item ${!selectingStart ? 'active' : ''}`}
+                onClick={() => setSelectingStart(false)}
+              >
+                <span className="date-label">结束日期</span>
+                <span className="date-value">
+                  {options.dateRange?.end.toLocaleDateString('zh-CN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit'
+                  })}
+                </span>
+              </div>
+            </div>
+            <div className="calendar-container">
+              <div className="calendar-header">
+                <button
+                  className="calendar-nav-btn"
+                  onClick={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1))}
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <span className="calendar-month">
+                  {calendarDate.getFullYear()}年{calendarDate.getMonth() + 1}月
+                </span>
+                <button
+                  className="calendar-nav-btn"
+                  onClick={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1))}
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+              <div className="calendar-weekdays">
+                {['日', '一', '二', '三', '四', '五', '六'].map(day => (
+                  <div key={day} className="calendar-weekday">{day}</div>
+                ))}
+              </div>
+              <div className="calendar-days">
+                {generateCalendar().map((day, index) => {
+                  if (day === null) {
+                    return <div key={`empty-${index}`} className="calendar-day empty" />
+                  }
+
+                  const currentDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), day)
+                  const isStart = options.dateRange?.start.toDateString() === currentDate.toDateString()
+                  const isEnd = options.dateRange?.end.toDateString() === currentDate.toDateString()
+                  const isInRange = options.dateRange && currentDate >= options.dateRange.start && currentDate <= options.dateRange.end
+
+                  return (
+                    <div
+                      key={day}
+                      className={`calendar-day ${isStart ? 'start' : ''} ${isEnd ? 'end' : ''} ${isInRange ? 'in-range' : ''}`}
+                      onClick={() => handleDateSelect(day)}
+                    >
+                      {day}
+                    </div>
+                  )
+                })}
               </div>
             </div>
             <div className="date-picker-actions">
