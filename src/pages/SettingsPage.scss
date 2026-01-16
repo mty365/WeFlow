@@ -203,6 +203,23 @@
       cursor: pointer;
     }
   }
+
+  select {
+    width: 100%;
+    padding: 10px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 9999px;
+    font-size: 14px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    margin-bottom: 10px;
+    cursor: pointer;
+
+    &:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+  }
   
   .input-with-toggle {
     position: relative;
@@ -231,6 +248,93 @@
         background: var(--border-color);
         color: var(--text-primary);
       }
+    }
+  }
+}
+
+.whisper-section {
+  .whisper-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+
+  .whisper-field {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .field-label {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-bottom: 6px;
+  }
+
+  .whisper-status-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 4px 0 10px;
+
+    .status {
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 500;
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+    }
+
+    .status.ok {
+      background: rgba(16, 185, 129, 0.12);
+      color: #059669;
+    }
+
+    .status.warn {
+      background: rgba(245, 158, 11, 0.12);
+      color: #d97706;
+    }
+
+    .path {
+      flex: 1;
+      min-width: 0;
+      font-size: 11px;
+      color: var(--text-tertiary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .whisper-progress {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    max-width: 320px;
+
+    .progress-bar {
+      flex: 1;
+      height: 6px;
+      background: var(--bg-tertiary);
+      border-radius: 999px;
+      overflow: hidden;
+
+      .progress-fill {
+        height: 100%;
+        background: var(--primary);
+        border-radius: 999px;
+        transition: width 0.2s ease;
+      }
+    }
+
+    span {
+      font-size: 12px;
+      color: var(--text-secondary);
+      min-width: 36px;
+      text-align: right;
     }
   }
 }

@@ -1303,6 +1303,12 @@
   cursor: pointer;
 }
 
+.voice-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .message-bubble.sent .voice-message {
   background: rgba(255, 255, 255, 0.18);
 }
@@ -1389,6 +1395,34 @@
 
 .voice-error {
   color: #d9480f;
+}
+
+.voice-transcript {
+  max-width: 260px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.voice-transcript.sent {
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-primary);
+  border-color: transparent;
+}
+
+.voice-transcript.received {
+  background: var(--card-bg);
+}
+
+.voice-transcript.error {
+  color: #d9480f;
+  cursor: pointer;
 }
 
 @keyframes voicePulse {

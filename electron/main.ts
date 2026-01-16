@@ -15,6 +15,7 @@ import { groupAnalyticsService } from './services/groupAnalyticsService'
 import { annualReportService } from './services/annualReportService'
 import { exportService, ExportOptions } from './services/exportService'
 import { KeyService } from './services/keyService'
+import { voiceTranscribeService } from './services/voiceTranscribeService'
 
 
 // 配置自动更新
@@ -442,6 +443,10 @@ function registerIpcHandlers() {
     return chatService.getVoiceData(sessionId, msgId)
   })
 
+  ipcMain.handle('chat:getVoiceTranscript', async (_, sessionId: string, msgId: string) => {
+    return chatService.getVoiceTranscript(sessionId, msgId)
+  })
+
   ipcMain.handle('chat:getMessageById', async (_, sessionId: string, localId: number) => {
     return chatService.getMessageById(sessionId, localId)
   })
@@ -514,6 +519,16 @@ function registerIpcHandlers() {
       return { success: false, error: errors.join('; ') }
     }
     return { success: true }
+  })
+
+  ipcMain.handle('whisper:downloadModel', async (event, payload: { modelName: string; downloadDir?: string; source?: string }) => {
+    return voiceTranscribeService.downloadModel(payload, (progress) => {
+      event.sender.send('whisper:downloadProgress', progress)
+    })
+  })
+
+  ipcMain.handle('whisper:getModelStatus', async (_, payload: { modelName: string; downloadDir?: string }) => {
+    return voiceTranscribeService.getModelStatus(payload)
   })
 
   // 群聊分析相关

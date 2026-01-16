@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { useThemeStore, themes } from '../stores/themeStore'
 import { useAnalyticsStore } from '../stores/analyticsStore'
@@ -7,15 +7,29 @@ import * as configService from '../services/config'
 import {
   Eye, EyeOff, FolderSearch, FolderOpen, Search, Copy,
   RotateCcw, Trash2, Save, Plug, Check, Sun, Moon,
-  Palette, Database, Download, HardDrive, Info, RefreshCw, ChevronDown
+  Palette, Database, Download, HardDrive, Info, RefreshCw, ChevronDown, Mic
 } from 'lucide-react'
 import './SettingsPage.scss'
 
-type SettingsTab = 'appearance' | 'database' | 'cache' | 'about'
+type SettingsTab = 'appearance' | 'database' | 'whisper' | 'cache' | 'about'
+
+const whisperModels = [
+  { value: 'tiny', label: 'tiny (75 MB)' },
+  { value: 'base', label: 'base (142 MB)' },
+  { value: 'small', label: 'small (466 MB)' },
+  { value: 'medium', label: 'medium (1.5 GB)' },
+  { value: 'large-v3', label: 'large-v3 (2.9 GB)' }
+]
+
+const whisperSources = [
+  { value: 'official', label: 'HuggingFace 官方' },
+  { value: 'tsinghua', label: '清华镜像 (hf-mirror)' }
+]
 
 const tabs: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: 'appearance', label: '外观', icon: Palette },
   { id: 'database', label: '数据库连接', icon: Database },
+  { id: 'whisper', label: '语音识别模型', icon: Mic },
   { id: 'cache', label: '缓存', icon: HardDrive },
   { id: 'about', label: '关于', icon: Info }
 ]
@@ -41,6 +55,12 @@ function SettingsPage() {
   const wxidDropdownRef = useRef<HTMLDivElement>(null)
   const [cachePath, setCachePath] = useState('')
   const [logEnabled, setLogEnabled] = useState(false)
+  const [whisperModelName, setWhisperModelName] = useState('base')
+  const [whisperModelDir, setWhisperModelDir] = useState('')
+  const [whisperDownloadSource, setWhisperDownloadSource] = useState('tsinghua')
+  const [isWhisperDownloading, setIsWhisperDownloading] = useState(false)
+  const [whisperDownloadProgress, setWhisperDownloadProgress] = useState(0)
+  const [whisperModelStatus, setWhisperModelStatus] = useState<{ exists: boolean; path?: string } | null>(null)
 
   const [isLoading, setIsLoadingState] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
@@ -102,6 +122,9 @@ function SettingsPage() {
       const savedLogEnabled = await configService.getLogEnabled()
       const savedImageXorKey = await configService.getImageXorKey()
       const savedImageAesKey = await configService.getImageAesKey()
+      const savedWhisperModelName = await configService.getWhisperModelName()
+      const savedWhisperModelDir = await configService.getWhisperModelDir()
+      const savedWhisperSource = await configService.getWhisperDownloadSource()
 
       if (savedKey) setDecryptKey(savedKey)
       if (savedPath) setDbPath(savedPath)
@@ -112,12 +135,29 @@ function SettingsPage() {
       }
       if (savedImageAesKey) setImageAesKey(savedImageAesKey)
       setLogEnabled(savedLogEnabled)
+      if (savedWhisperModelName) setWhisperModelName(savedWhisperModelName)
+      if (savedWhisperModelDir) setWhisperModelDir(savedWhisperModelDir)
+      if (savedWhisperSource) setWhisperDownloadSource(savedWhisperSource)
     } catch (e) {
       console.error('加载配置失败:', e)
     }
   }
 
 
+
+  const refreshWhisperStatus = async (modelNameValue = whisperModelName, modelDirValue = whisperModelDir) => {
+    try {
+      const result = await window.electronAPI.whisper?.getModelStatus({
+        modelName: modelNameValue,
+        downloadDir: modelDirValue || undefined
+      })
+      if (result?.success) {
+        setWhisperModelStatus({ exists: Boolean(result.exists), path: result.path })
+      }
+    } catch {
+      setWhisperModelStatus(null)
+    }
+  }
 
   const loadAppVersion = async () => {
     try {
@@ -136,6 +176,20 @@ function SettingsPage() {
     return () => removeListener?.()
   }, [])
 
+  useEffect(() => {
+    const removeListener = window.electronAPI.whisper?.onDownloadProgress?.((payload) => {
+      if (payload.modelName !== whisperModelName) return
+      if (typeof payload.percent === 'number') {
+        setWhisperDownloadProgress(payload.percent)
+      }
+    })
+    return () => removeListener?.()
+  }, [whisperModelName])
+
+  useEffect(() => {
+    void refreshWhisperStatus(whisperModelName, whisperModelDir)
+  }, [whisperModelName, whisperModelDir])
+
   const handleCheckUpdate = async () => {
     setIsCheckingUpdate(true)
     setUpdateInfo(null)
@@ -143,9 +197,9 @@ function SettingsPage() {
       const result = await window.electronAPI.app.checkForUpdates()
       if (result.hasUpdate) {
         setUpdateInfo(result)
-        showMessage(`发现新版本 ${result.version}`, true)
+        showMessage(`发现新版：${result.version}`, true)
       } else {
-        showMessage('当前已是最新版本', true)
+        showMessage('当前已是最新版', true)
       }
     } catch (e) {
       showMessage(`检查更新失败: ${e}`, false)
@@ -257,6 +311,60 @@ function SettingsPage() {
 
 
 
+  const handleSelectWhisperModelDir = async () => {
+    try {
+      const result = await dialog.openFile({ title: '选择 Whisper 模型下载目录', properties: ['openDirectory'] })
+      if (!result.canceled && result.filePaths.length > 0) {
+        const dir = result.filePaths[0]
+        setWhisperModelDir(dir)
+        await configService.setWhisperModelDir(dir)
+        showMessage('已选择 Whisper 模型目录', true)
+      }
+    } catch (e) {
+      showMessage('选择目录失败', false)
+    }
+  }
+
+  const handleWhisperModelChange = async (value: string) => {
+    setWhisperModelName(value)
+    setWhisperDownloadProgress(0)
+    await configService.setWhisperModelName(value)
+  }
+
+  const handleWhisperSourceChange = async (value: string) => {
+    setWhisperDownloadSource(value)
+    await configService.setWhisperDownloadSource(value)
+  }
+
+  const handleDownloadWhisperModel = async () => {
+    if (isWhisperDownloading) return
+    setIsWhisperDownloading(true)
+    setWhisperDownloadProgress(0)
+    try {
+      const result = await window.electronAPI.whisper.downloadModel({
+        modelName: whisperModelName,
+        downloadDir: whisperModelDir || undefined,
+        source: whisperDownloadSource
+      })
+      if (result.success) {
+        setWhisperDownloadProgress(100)
+        showMessage('Whisper 模型下载完成', true)
+        await refreshWhisperStatus(whisperModelName, whisperModelDir)
+      } else {
+        showMessage(result.error || 'Whisper 模型下载失败', false)
+      }
+    } catch (e) {
+      showMessage(`Whisper 模型下载失败: ${e}`, false)
+    } finally {
+      setIsWhisperDownloading(false)
+    }
+  }
+
+  const handleResetWhisperModelDir = async () => {
+    setWhisperModelDir('')
+    await configService.setWhisperModelDir('')
+  }
+
   const handleAutoGetDbKey = async () => {
     if (isFetchingDbKey) return
     setIsFetchingDbKey(true)
@@ -367,6 +475,9 @@ function SettingsPage() {
       } else {
         await configService.setImageAesKey('')
       }
+      await configService.setWhisperModelName(whisperModelName)
+      await configService.setWhisperModelDir(whisperModelDir)
+      await configService.setWhisperDownloadSource(whisperDownloadSource)
       await configService.setOnboardingDone(true)
 
       showMessage('配置保存成功，正在测试连接...', true)
@@ -387,7 +498,7 @@ function SettingsPage() {
   }
 
   const handleClearConfig = async () => {
-    const confirmed = window.confirm('确定要清除当前配置吗？清除后需要重新完成首次配置。')
+    const confirmed = window.confirm('确定要清除当前配置吗？清除后需要重新完成首次配置？')
     if (!confirmed) return
     setIsLoadingState(true)
     setLoading(true, '正在清除配置...')
@@ -402,6 +513,12 @@ function SettingsPage() {
       setWxid('')
       setCachePath('')
       setLogEnabled(false)
+      setWhisperModelName('base')
+      setWhisperModelDir('')
+      setWhisperDownloadSource('tsinghua')
+      setWhisperModelStatus(null)
+      setWhisperDownloadProgress(0)
+      setIsWhisperDownloading(false)
       setDbConnected(false)
       await window.electronAPI.window.openOnboardingWindow()
     } catch (e) {
@@ -609,16 +726,6 @@ function SettingsPage() {
       </div>
 
       <div className="form-group">
-        <label>缓存目录 <span className="optional">(可选)</span></label>
-        <span className="form-hint">留空使用默认目录</span>
-        <input type="text" placeholder="留空使用默认目录" value={cachePath} onChange={(e) => setCachePath(e.target.value)} />
-        <div className="btn-row">
-          <button className="btn btn-secondary" onClick={handleSelectCachePath}><FolderOpen size={16} /> 浏览选择</button>
-          <button className="btn btn-secondary" onClick={() => setCachePath('')}><RotateCcw size={16} /> 恢复默认</button>
-        </div>
-      </div>
-
-      <div className="form-group">
         <label>调试日志</label>
         <span className="form-hint">开启后写入 WCDB 调试日志，便于排查连接问题</span>
         <div className="log-toggle-line">
@@ -650,12 +757,82 @@ function SettingsPage() {
       </div>
     </div>
   )
-
-
-
+  const renderWhisperTab = () => (
+    <div className="tab-content">
+      <p className="section-desc">语音解密后自动转写为文字</p>
+      <div className="form-group whisper-section">
+        <label>语音识别模型 (Whisper)</label>
+        <span className="form-hint">语音解密后自动转文字，模型越大越准确但下载更慢</span>
+        <div className="whisper-grid">
+          <div className="whisper-field">
+            <span className="field-label">模型</span>
+            <select
+              value={whisperModelName}
+              onChange={(e) => handleWhisperModelChange(e.target.value)}
+            >
+              {whisperModels.map((model) => (
+                <option key={model.value} value={model.value}>{model.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="whisper-field">
+            <span className="field-label">下载源</span>
+            <select
+              value={whisperDownloadSource}
+              onChange={(e) => handleWhisperSourceChange(e.target.value)}
+            >
+              {whisperSources.map((source) => (
+                <option key={source.value} value={source.value}>{source.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <span className="form-hint">模型下载目录</span>
+        <input
+          type="text"
+          placeholder="留空使用默认目录"
+          value={whisperModelDir}
+          onChange={(e) => setWhisperModelDir(e.target.value)}
+          onBlur={() => configService.setWhisperModelDir(whisperModelDir)}
+        />
+        <div className="btn-row">
+          <button className="btn btn-secondary" onClick={handleSelectWhisperModelDir}><FolderOpen size={16} /> 选择目录</button>
+          <button className="btn btn-secondary" onClick={handleResetWhisperModelDir}><RotateCcw size={16} /> 默认目录</button>
+        </div>
+        <div className="whisper-status-line">
+          <span className={`status ${whisperModelStatus?.exists ? 'ok' : 'warn'}`}>
+            {whisperModelStatus?.exists ? '已下载' : '未下载'}
+          </span>
+          {whisperModelStatus?.path && <span className="path">{whisperModelStatus.path}</span>}
+        </div>
+        {isWhisperDownloading ? (
+          <div className="whisper-progress">
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${whisperDownloadProgress}%` }} />
+            </div>
+            <span>{whisperDownloadProgress.toFixed(0)}%</span>
+          </div>
+        ) : (
+          <button className="btn btn-primary" onClick={handleDownloadWhisperModel}>
+            <Download size={16} /> 下载模型
+          </button>
+        )}
+      </div>
+    </div>
+  )
   const renderCacheTab = () => (
     <div className="tab-content">
       <p className="section-desc">管理应用缓存数据</p>
+      <div className="form-group">
+        <label>缓存目录 <span className="optional">(可选)</span></label>
+        <span className="form-hint">留空使用默认目录</span>
+        <input type="text" placeholder="留空使用默认目录" value={cachePath} onChange={(e) => setCachePath(e.target.value)} />
+        <div className="btn-row">
+          <button className="btn btn-secondary" onClick={handleSelectCachePath}><FolderOpen size={16} /> 浏览选择</button>
+          <button className="btn btn-secondary" onClick={() => setCachePath('')}><RotateCcw size={16} /> 恢复默认</button>
+        </div>
+      </div>
+
       <div className="btn-row">
         <button className="btn btn-secondary" onClick={handleClearAnalyticsCache} disabled={isClearingCache}>
           <Trash2 size={16} /> 清除分析缓存
@@ -664,8 +841,7 @@ function SettingsPage() {
           <Trash2 size={16} /> 清除图片缓存
         </button>
         <button className="btn btn-danger" onClick={handleClearAllCache} disabled={isClearingCache}>
-          <Trash2 size={16} /> 清除所有缓存
-        </button>
+          <Trash2 size={16} /> 清除所有缓存</button>
       </div>
       <div className="divider" />
       <p className="section-desc">清除当前配置并重新开始首次引导</p>
@@ -690,7 +866,7 @@ function SettingsPage() {
         <div className="about-update">
           {updateInfo?.hasUpdate ? (
             <>
-              <p className="update-hint">新版本 v{updateInfo.version} 可用</p>
+              <p className="update-hint">新版 v{updateInfo.version} 可用</p>
               {isDownloading ? (
                 <div className="download-progress">
                   <div className="progress-bar">
@@ -747,7 +923,7 @@ function SettingsPage() {
                   onClick={() => handleSelectWxid(opt.wxid)}
                 >
                   <span className="wxid-id">{opt.wxid}</span>
-                  <span className="wxid-date">最后修改: {new Date(opt.modifiedTime).toLocaleString()}</span>
+                  <span className="wxid-date">最后修改 {new Date(opt.modifiedTime).toLocaleString()}</span>
                 </div>
               ))}
             </div>
@@ -782,6 +958,7 @@ function SettingsPage() {
       <div className="settings-body">
         {activeTab === 'appearance' && renderAppearanceTab()}
         {activeTab === 'database' && renderDatabaseTab()}
+        {activeTab === 'whisper' && renderWhisperTab()}
         {activeTab === 'cache' && renderCacheTab()}
         {activeTab === 'about' && renderAboutTab()}
       </div>
@@ -790,3 +967,5 @@ function SettingsPage() {
 }
 
 export default SettingsPage
+
+

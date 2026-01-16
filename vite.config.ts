@@ -30,7 +30,9 @@ export default defineConfig({
               external: [
                 'better-sqlite3',
                 'koffi',
-                'fsevents'
+                'fsevents',
+                'whisper-node',
+                'shelljs'
               ]
             }
           }

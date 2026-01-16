@@ -95,6 +95,7 @@ export interface ElectronAPI {
     }>
     getImageData: (sessionId: string, msgId: string) => Promise<{ success: boolean; data?: string; error?: string }>
     getVoiceData: (sessionId: string, msgId: string) => Promise<{ success: boolean; data?: string; error?: string }>
+    getVoiceTranscript: (sessionId: string, msgId: string) => Promise<{ success: boolean; transcript?: string; error?: string }>
   }
 
   image: {
@@ -294,6 +295,11 @@ export interface ElectronAPI {
       success: boolean
       error?: string
     }>
+  }
+  whisper: {
+    downloadModel: (payload: { modelName: string; downloadDir?: string; source?: string }) => Promise<{ success: boolean; path?: string; error?: string }>
+    getModelStatus: (payload: { modelName: string; downloadDir?: string }) => Promise<{ success: boolean; exists?: boolean; path?: string; sizeBytes?: number; error?: string }>
+    onDownloadProgress: (callback: (payload: { modelName: string; downloadedBytes: number; totalBytes?: number; percent?: number }) => void) => () => void
   }
 }
 

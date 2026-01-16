@@ -1280,6 +1280,7 @@ function ChatPage(_props: ChatPageProps) {
 const emojiDataUrlCache = new Map<string, string>()
 const imageDataUrlCache = new Map<string, string>()
 const voiceDataUrlCache = new Map<string, string>()
+const voiceTranscriptCache = new Map<string, string>()
 const senderAvatarCache = new Map<string, { avatarUrl?: string; displayName?: string }>()
 const senderAvatarLoading = new Map<string, Promise<{ avatarUrl?: string; displayName?: string } | null>>()
 
@@ -1312,6 +1313,9 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat }:
   const [voiceLoading, setVoiceLoading] = useState(false)
   const [isVoicePlaying, setIsVoicePlaying] = useState(false)
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null)
+  const [voiceTranscriptLoading, setVoiceTranscriptLoading] = useState(false)
+  const [voiceTranscriptError, setVoiceTranscriptError] = useState(false)
+  const voiceTranscriptRequestedRef = useRef(false)
   const [showImagePreview, setShowImagePreview] = useState(false)
 
   // 从缓存获取表情包 data URL
@@ -1326,6 +1330,10 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat }:
   const voiceCacheKey = `voice:${message.localId}`
   const [voiceDataUrl, setVoiceDataUrl] = useState<string | undefined>(
     () => voiceDataUrlCache.get(voiceCacheKey)
+  )
+  const voiceTranscriptCacheKey = `voice-transcript:${message.localId}`
+  const [voiceTranscript, setVoiceTranscript] = useState<string | undefined>(
+    () => voiceTranscriptCache.get(voiceTranscriptCacheKey)
   )
 
   const formatTime = (timestamp: number): string => {
@@ -1604,6 +1612,37 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat }:
     }
   }, [isVoice])
 
+  const requestVoiceTranscript = useCallback(async () => {
+    if (voiceTranscriptLoading || voiceTranscriptRequestedRef.current) return
+    voiceTranscriptRequestedRef.current = true
+    setVoiceTranscriptLoading(true)
+    setVoiceTranscriptError(false)
+    try {
+      const result = await window.electronAPI.chat.getVoiceTranscript(session.username, String(message.localId))
+      if (result.success) {
+        const transcriptText = (result.transcript || '').trim()
+        voiceTranscriptCache.set(voiceTranscriptCacheKey, transcriptText)
+        setVoiceTranscript(transcriptText)
+      } else {
+        setVoiceTranscriptError(true)
+        voiceTranscriptRequestedRef.current = false
+      }
+    } catch {
+      setVoiceTranscriptError(true)
+      voiceTranscriptRequestedRef.current = false
+    } finally {
+      setVoiceTranscriptLoading(false)
+    }
+  }, [message.localId, session.username, voiceTranscriptCacheKey, voiceTranscriptLoading])
+
+  useEffect(() => {
+    if (!isVoice) return
+    if (!voiceDataUrl) return
+    if (voiceTranscriptError) return
+    if (voiceTranscriptLoading || voiceTranscript !== undefined || voiceTranscriptRequestedRef.current) return
+    void requestVoiceTranscript()
+  }, [isVoice, voiceDataUrl, voiceTranscript, voiceTranscriptError, voiceTranscriptLoading, requestVoiceTranscript])
+
   if (isSystem) {
     return (
       <div className="message-bubble system">
@@ -1762,34 +1801,57 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat }:
       }
 
       const showDecryptHint = !voiceDataUrl && !voiceLoading && !isVoicePlaying
+      const showTranscript = Boolean(voiceDataUrl) && (voiceTranscriptLoading || voiceTranscriptError || voiceTranscript !== undefined)
+      const transcriptText = (voiceTranscript || '').trim()
+      const transcriptDisplay = voiceTranscriptLoading
+        ? '转写中...'
+        : voiceTranscriptError
+          ? '转写失败，点击重试'
+          : (transcriptText || '未识别到文字')
+      const handleTranscriptRetry = () => {
+        if (!voiceTranscriptError) return
+        voiceTranscriptRequestedRef.current = false
+        void requestVoiceTranscript()
+      }
 
       return (
-        <div className={`voice-message ${isVoicePlaying ? 'playing' : ''}`} onClick={handleToggle}>
-          <button
-            className="voice-play-btn"
-            onClick={(e) => {
-              e.stopPropagation()
-              handleToggle()
-            }}
-            aria-label="播放语音"
-            type="button"
-          >
-            {isVoicePlaying ? <Pause size={16} /> : <Play size={16} />}
-          </button>
-          <div className="voice-wave">
-            <span />
-            <span />
-            <span />
-            <span />
-            <span />
+        <div className="voice-stack">
+          <div className={`voice-message ${isVoicePlaying ? 'playing' : ''}`} onClick={handleToggle}>
+            <button
+              className="voice-play-btn"
+              onClick={(e) => {
+                e.stopPropagation()
+                handleToggle()
+              }}
+              aria-label="播放语音"
+              type="button"
+            >
+              {isVoicePlaying ? <Pause size={16} /> : <Play size={16} />}
+            </button>
+            <div className="voice-wave">
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="voice-info">
+              <span className="voice-label">语音</span>
+              {durationText && <span className="voice-duration">{durationText}</span>}
+              {voiceLoading && <span className="voice-loading">解码中...</span>}
+              {showDecryptHint && <span className="voice-hint">点击解密</span>}
+              {voiceError && <span className="voice-error">播放失败</span>}
+            </div>
           </div>
-          <div className="voice-info">
-            <span className="voice-label">语音</span>
-            {durationText && <span className="voice-duration">{durationText}</span>}
-            {voiceLoading && <span className="voice-loading">解码中...</span>}
-            {showDecryptHint && <span className="voice-hint">点击解密</span>}
-            {voiceError && <span className="voice-error">播放失败</span>}
-          </div>
+          {showTranscript && (
+            <div
+              className={`voice-transcript ${isSent ? 'sent' : 'received'}${voiceTranscriptError ? ' error' : ''}`}
+              onClick={handleTranscriptRetry}
+              title={voiceTranscriptError ? '点击重试语音转写' : undefined}
+            >
+              {transcriptDisplay}
+            </div>
+          )}
         </div>
       )
     }

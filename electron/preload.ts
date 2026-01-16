@@ -106,7 +106,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     close: () => ipcRenderer.invoke('chat:close'),
     getSessionDetail: (sessionId: string) => ipcRenderer.invoke('chat:getSessionDetail', sessionId),
     getImageData: (sessionId: string, msgId: string) => ipcRenderer.invoke('chat:getImageData', sessionId, msgId),
-    getVoiceData: (sessionId: string, msgId: string) => ipcRenderer.invoke('chat:getVoiceData', sessionId, msgId)
+    getVoiceData: (sessionId: string, msgId: string) => ipcRenderer.invoke('chat:getVoiceData', sessionId, msgId),
+    getVoiceTranscript: (sessionId: string, msgId: string) => ipcRenderer.invoke('chat:getVoiceTranscript', sessionId, msgId)
   },
 
 
@@ -174,5 +175,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('export:exportSessions', sessionIds, outputDir, options),
     exportSession: (sessionId: string, outputPath: string, options: any) =>
       ipcRenderer.invoke('export:exportSession', sessionId, outputPath, options)
+  },
+
+  whisper: {
+    downloadModel: (payload: { modelName: string; downloadDir?: string; source?: string }) =>
+      ipcRenderer.invoke('whisper:downloadModel', payload),
+    getModelStatus: (payload: { modelName: string; downloadDir?: string }) =>
+      ipcRenderer.invoke('whisper:getModelStatus', payload),
+    onDownloadProgress: (callback: (payload: { modelName: string; downloadedBytes: number; totalBytes?: number; percent?: number }) => void) => {
+      ipcRenderer.on('whisper:downloadProgress', (_, payload) => callback(payload))
+      return () => ipcRenderer.removeAllListeners('whisper:downloadProgress')
+    }
   }
 })

@@ -16,6 +16,7 @@ import { ConfigService } from './config'
 import { wcdbService } from './wcdbService'
 import { MessageCacheService } from './messageCacheService'
 import { ContactCacheService, ContactCacheEntry } from './contactCacheService'
+import { voiceTranscribeService } from './voiceTranscribeService'
 
 type HardlinkState = {
   db: Database.Database
@@ -83,6 +84,10 @@ class ChatService {
   private hardlinkCache = new Map<string, HardlinkState>()
   private readonly contactCacheService: ContactCacheService
   private readonly messageCacheService: MessageCacheService
+  private voiceWavCache = new Map<string, Buffer>()
+  private voiceTranscriptCache = new Map<string, string>()
+  private voiceTranscriptPending = new Map<string, Promise<{ success: boolean; transcript?: string; error?: string }>>()
+  private readonly voiceCacheMaxEntries = 50
 
   constructor() {
     this.configService = new ConfigService()
@@ -1738,6 +1743,9 @@ class ChatService {
 
     if (includeMessages) {
       this.messageCacheService.clear()
+      this.voiceWavCache.clear()
+      this.voiceTranscriptCache.clear()
+      this.voiceTranscriptPending.clear()
     }
 
     for (const state of this.hardlinkCache.values()) {
@@ -2263,6 +2271,8 @@ class ChatService {
         const pcmData = readFileSync(pcmFile)
         const wavHeader = this.createWavHeader(pcmData.length, 24000, 1) // 微信语音通常 24kHz
         const wavData = Buffer.concat([wavHeader, pcmData])
+        const cacheKey = this.getVoiceCacheKey(sessionId, msgId)
+        this.cacheVoiceWav(cacheKey, wavData)
 
         return { success: true, data: wavData.toString('base64') }
       } finally {
@@ -2274,6 +2284,45 @@ class ChatService {
       console.error('ChatService: getVoiceData 失败:', e)
       return { success: false, error: String(e) }
     }
+  }
+
+  async getVoiceTranscript(sessionId: string, msgId: string): Promise<{ success: boolean; transcript?: string; error?: string }> {
+    const cacheKey = this.getVoiceCacheKey(sessionId, msgId)
+    const cached = this.voiceTranscriptCache.get(cacheKey)
+    if (cached) {
+      return { success: true, transcript: cached }
+    }
+
+    const pending = this.voiceTranscriptPending.get(cacheKey)
+    if (pending) {
+      return pending
+    }
+
+    const task = (async () => {
+      try {
+        let wavData = this.voiceWavCache.get(cacheKey)
+        if (!wavData) {
+          const voiceResult = await this.getVoiceData(sessionId, msgId)
+          if (!voiceResult.success || !voiceResult.data) {
+            return { success: false, error: voiceResult.error || '语音解码失败' }
+          }
+          wavData = Buffer.from(voiceResult.data, 'base64')
+        }
+
+        const result = await voiceTranscribeService.transcribeWavBuffer(wavData)
+        if (result.success && result.transcript) {
+          this.cacheVoiceTranscript(cacheKey, result.transcript)
+        }
+        return result
+      } catch (error) {
+        return { success: false, error: String(error) }
+      } finally {
+        this.voiceTranscriptPending.delete(cacheKey)
+      }
+    })()
+
+    this.voiceTranscriptPending.set(cacheKey, task)
+    return task
   }
 
   private createWavHeader(pcmLength: number, sampleRate: number = 24000, channels: number = 1): Buffer {
@@ -2292,6 +2341,26 @@ class ChatService {
     header.write('data', 36)
     header.writeUInt32LE(pcmLength, 40)
     return header
+  }
+
+  private getVoiceCacheKey(sessionId: string, msgId: string): string {
+    return `${sessionId}:${msgId}`
+  }
+
+  private cacheVoiceWav(cacheKey: string, wavData: Buffer): void {
+    this.voiceWavCache.set(cacheKey, wavData)
+    if (this.voiceWavCache.size > this.voiceCacheMaxEntries) {
+      const oldestKey = this.voiceWavCache.keys().next().value
+      if (oldestKey) this.voiceWavCache.delete(oldestKey)
+    }
+  }
+
+  private cacheVoiceTranscript(cacheKey: string, transcript: string): void {
+    this.voiceTranscriptCache.set(cacheKey, transcript)
+    if (this.voiceTranscriptCache.size > this.voiceCacheMaxEntries) {
+      const oldestKey = this.voiceTranscriptCache.keys().next().value
+      if (oldestKey) this.voiceTranscriptCache.delete(oldestKey)
+    }
   }
 
   async getMessageById(sessionId: string, localId: number): Promise<{ success: boolean; message?: Message; error?: string }> {
