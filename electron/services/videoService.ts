@@ -1,4 +1,4 @@
-import { join } from 'path'
+﻿import { join } from 'path'
 import { existsSync, readdirSync, statSync, readFileSync } from 'fs'
 import { ConfigService } from './config'
 import Database from 'better-sqlite3'
@@ -69,9 +69,6 @@ class VideoService {
         const wxid = this.getMyWxid()
         const cleanedWxid = this.cleanWxid(wxid)
 
-        console.log('[VideoService] queryVideoFileName called with MD5:', md5)
-        console.log('[VideoService] cachePath:', cachePath, 'dbPath:', dbPath, 'wxid:', wxid, 'cleanedWxid:', cleanedWxid)
-
         if (!wxid) return undefined
 
         // 方法1：优先在 cachePath 下查找解密后的 hardlink.db
@@ -86,7 +83,6 @@ class VideoService {
 
             for (const p of cacheDbPaths) {
                 if (existsSync(p)) {
-                    console.log('[VideoService] Found decrypted hardlink.db at:', p)
                     try {
                         const db = new Database(p, { readonly: true })
                         const row = db.prepare(`
@@ -98,11 +94,10 @@ class VideoService {
 
                         if (row?.file_name) {
                             const realMd5 = row.file_name.replace(/\.[^.]+$/, '')
-                            console.log('[VideoService] Found video filename via cache:', realMd5)
                             return realMd5
                         }
                     } catch (e) {
-                        console.log('[VideoService] Failed to query cached hardlink.db:', e)
+                        // Silently fail
                     }
                 }
             }
@@ -117,34 +112,27 @@ class VideoService {
 
             for (const p of encryptedDbPaths) {
                 if (existsSync(p)) {
-                    console.log('[VideoService] Found encrypted hardlink.db at:', p)
                     try {
                         const escapedMd5 = md5.replace(/'/g, "''")
                         
                         // 用 md5 字段查询，获取 file_name
                         const sql = `SELECT file_name FROM video_hardlink_info_v4 WHERE md5 = '${escapedMd5}' LIMIT 1`
-                        console.log('[VideoService] Query SQL:', sql)
                         
                         const result = await wcdbService.execQuery('media', p, sql)
-                        console.log('[VideoService] Query result:', result)
 
                         if (result.success && result.rows && result.rows.length > 0) {
                             const row = result.rows[0]
                             if (row?.file_name) {
                                 // 提取不带扩展名的文件名作为实际视频 MD5
                                 const realMd5 = String(row.file_name).replace(/\.[^.]+$/, '')
-                                console.log('[VideoService] Found video filename:', realMd5)
                                 return realMd5
                             }
                         }
                     } catch (e) {
-                        console.log('[VideoService] Failed to query encrypted hardlink.db via wcdbService:', e)
                     }
                 }
             }
         }
-
-        console.log('[VideoService] No matching video found in hardlink.db')
         return undefined
     }
 
@@ -167,34 +155,26 @@ class VideoService {
      * 文件命名: {md5}.mp4, {md5}.jpg, {md5}_thumb.jpg
      */
     async getVideoInfo(videoMd5: string): Promise<VideoInfo> {
-        console.log('[VideoService] getVideoInfo called with MD5:', videoMd5)
 
         const dbPath = this.getDbPath()
         const wxid = this.getMyWxid()
 
-        console.log('[VideoService] Config - dbPath:', dbPath, 'wxid:', wxid)
-
         if (!dbPath || !wxid || !videoMd5) {
-            console.log('[VideoService] Missing required params')
             return { exists: false }
         }
 
         // 先尝试从数据库查询真正的视频文件名
         const realVideoMd5 = await this.queryVideoFileName(videoMd5) || videoMd5
-        console.log('[VideoService] Real video MD5:', realVideoMd5)
 
         const videoBaseDir = join(dbPath, wxid, 'msg', 'video')
-        console.log('[VideoService] Video base dir:', videoBaseDir)
 
         if (!existsSync(videoBaseDir)) {
-            console.log('[VideoService] Video base dir does not exist')
             return { exists: false }
         }
 
         // 遍历年月目录查找视频文件
         try {
             const allDirs = readdirSync(videoBaseDir)
-            console.log('[VideoService] Found year-month dirs:', allDirs)
 
             // 支持多种目录格式: YYYY-MM, YYYYMM, 或其他
             const yearMonthDirs = allDirs
@@ -211,11 +191,8 @@ class VideoService {
                 const coverPath = join(dirPath, `${realVideoMd5}.jpg`)
                 const thumbPath = join(dirPath, `${realVideoMd5}_thumb.jpg`)
 
-                console.log('[VideoService] Checking:', videoPath)
-
                 // 检查视频文件是否存在
                 if (existsSync(videoPath)) {
-                    console.log('[VideoService] Video file found!')
                     return {
                         videoUrl: videoPath,  // 返回文件路径，前端通过 readFile 读取
                         coverUrl: this.fileToDataUrl(coverPath, 'image/jpeg'),
@@ -224,8 +201,6 @@ class VideoService {
                     }
                 }
             }
-
-            console.log('[VideoService] Video file not found in any directory')
         } catch (e) {
             console.error('[VideoService] Error searching for video:', e)
         }
@@ -237,10 +212,8 @@ class VideoService {
      * 根据消息内容解析视频MD5
      */
     parseVideoMd5(content: string): string | undefined {
-        console.log('[VideoService] parseVideoMd5 called, content length:', content?.length)
         
         // 打印前500字符看看 XML 结构
-        console.log('[VideoService] XML preview:', content?.substring(0, 500))
 
         if (!content) return undefined
 
@@ -252,7 +225,6 @@ class VideoService {
             while ((match = md5Regex.exec(content)) !== null) {
                 allMd5s.push(`${match[0]}`)
             }
-            console.log('[VideoService] All MD5 attributes found:', allMd5s)
 
             // 提取 md5（用于查询 hardlink.db）
             // 注意：不是 rawmd5，rawmd5 是另一个值
@@ -261,23 +233,18 @@ class VideoService {
             // 尝试从videomsg标签中提取md5
             const videoMsgMatch = /<videomsg[^>]*\smd5\s*=\s*['"]([a-fA-F0-9]+)['"]/i.exec(content)
             if (videoMsgMatch) {
-                console.log('[VideoService] Found MD5 via videomsg:', videoMsgMatch[1])
                 return videoMsgMatch[1].toLowerCase()
             }
 
             const attrMatch = /\smd5\s*=\s*['"]([a-fA-F0-9]+)['"]/i.exec(content)
             if (attrMatch) {
-                console.log('[VideoService] Found MD5 via attribute:', attrMatch[1])
                 return attrMatch[1].toLowerCase()
             }
 
             const md5Match = /<md5>([a-fA-F0-9]+)<\/md5>/i.exec(content)
             if (md5Match) {
-                console.log('[VideoService] Found MD5 via <md5> tag:', md5Match[1])
                 return md5Match[1].toLowerCase()
             }
-
-            console.log('[VideoService] No MD5 found in content')
         } catch (e) {
             console.error('[VideoService] 解析视频MD5失败:', e)
         }

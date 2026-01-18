@@ -1480,11 +1480,15 @@ class ChatService {
   }
 
   private cleanSystemMessage(content: string): string {
-    return content
-      .replace(/<img[^>]*>/gi, '')
-      .replace(/<\/?[a-zA-Z0-9_]+[^>]*>/g, '')
-      .replace(/\s+/g, ' ')
-      .trim() || '[系统消息]'
+    // 移除 XML 声明
+    let cleaned = content.replace(/<\?xml[^?]*\?>/gi, '')
+    // 移除所有 XML/HTML 标签
+    cleaned = cleaned.replace(/<[^>]+>/g, '')
+    // 移除尾部的数字（如撤回消息后的时间戳）
+    cleaned = cleaned.replace(/\d+\s*$/, '')
+    // 清理多余空白
+    cleaned = cleaned.replace(/\s+/g, ' ').trim()
+    return cleaned || '[系统消息]'
   }
 
   private stripSenderPrefix(content: string): string {
